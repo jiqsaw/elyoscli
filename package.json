@@ -1,23 +1,17 @@
 {
   "name": "elyos-cli",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Streaming CLI chat app with LLM tool calling (weather + research APIs)",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsx --env-file=.env src/main.ts",
+    "typecheck": "tsc --noEmit"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jiqsaw/elyoscli.git"
   },
-  "keywords": [],
-  "author": "",
   "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/jiqsaw/elyoscli/issues"
-  },
-  "homepage": "https://github.com/jiqsaw/elyoscli#readme",
-  "description": "",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.5"
   },
