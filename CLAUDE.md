@@ -12,3 +12,4 @@ TypeScript + Node.js, Anthropic's official SDK for LLM calls. No database, no un
 - Never implement major logic without first showing the approach and getting approval.
 - Build step by step, one module at a time: plan a module, get approval, implement, verify, commit.
 - Keep this file short; update it only when something here changes.
+- Before integrating any new external API, probe it first (script in `scripts/`, outside app code): repetition for latency/consistency, input variation, auth errors, and concurrency/rate limits. Record findings in `API_NOTES.md` (observation → how discovered → error case → handling plan) before writing integration code.
