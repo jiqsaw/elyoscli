@@ -13,9 +13,12 @@
   },
   "license": "ISC",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.112.5"
+    "@anthropic-ai/sdk": "^0.112.5",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0"
   },
   "devDependencies": {
+    "@types/marked-terminal": "^6.1.1",
     "@types/node": "^26.1.1",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2"
