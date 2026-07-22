@@ -1,29 +1,9 @@
 import readline from "node:readline/promises";
 import Anthropic from "@anthropic-ai/sdk";
 import { streamChat } from "./llm.ts";
+import ora from "ora";
+import { isCancellation, reportLlmError, requireEnv } from "./helpers.ts";
 import { rerenderTurn } from "./markdown.ts";
-
-// Fails fast if .env wasn't loaded (run via `npm run dev`). Only names are ever printed.
-function requireEnv(names: string[]): void {
-  const missing = names.filter((name) => !process.env[name]);
-  if (missing.length > 0) {
-    console.error(`Missing required environment variables: ${missing.join(", ")}`);
-    console.error("Define them in .env and run with: npm run dev");
-    process.exit(1);
-  }
-}
-
-function isCancellation(err: unknown): boolean {
-  return err instanceof Anthropic.APIUserAbortError || (err instanceof Error && err.name === "AbortError");
-}
-
-function reportLlmError(err: unknown): void {
-  if (err instanceof Anthropic.AuthenticationError) console.error("\nLLM auth failed — check ANTHROPIC_API_KEY.");
-  else if (err instanceof Anthropic.RateLimitError) console.error("\nLLM rate limited — try again shortly.");
-  else if (err instanceof Anthropic.APIConnectionError) console.error("\nNetwork error reaching Anthropic.");
-  else if (err instanceof Anthropic.APIError) console.error(`\nLLM error (${err.status}): ${err.message}`);
-  else console.error(`\nError: ${err instanceof Error ? err.message : String(err)}`);
-}
 
 async function main(): Promise<void> {
   requireEnv(["ANTHROPIC_API_KEY", "ELYOS_API_KEY", "ELYOS_API_URL_WEATHER", "ELYOS_API_URL_RESEARCH"]);
@@ -58,26 +38,51 @@ async function main(): Promise<void> {
     if (userInput !== "") {
       const turnStart = history.length;
       activeTurn = new AbortController();
+      // ora handles all pending states: spins while the LLM or a tool is working,
+      // clears itself when output arrives. Falls back to plain text lines when
+      // stdout isn't a TTY. Spinner lines self-erase, so they stay out of rawParts.
+      // A TTY reporting zero width (some ptys) breaks ora's line clearing — fall
+      // back to plain text there too.
+      const brokenTty = process.stdout.isTTY && !process.stdout.columns;
+      const spinner = ora({ text: "Thinking…", ...(brokenTty ? { isEnabled: false } : {}) }).start();
       try {
         const rawParts: string[] = [];
         const write = (s: string) => {
           rawParts.push(s);
           process.stdout.write(s);
         };
-        write("Assistant: ");
-        const onStatus = (msg: string) => write(`\n  [${msg}] (Ctrl+C to cancel)\n`);
         let answer = "";
+        let prefixWritten = false;
+        // The first status ("Calling X…") passes quickly; the cancel hint only
+        // makes sense from the second one on (the actual API call / long waits).
+        let statusCount = 0;
+        const onStatus = (msg: string) => {
+          spinner.stop();
+          // Keep text segments separated when a tool call interrupts the answer.
+          if (answer !== "" && !answer.endsWith("\n\n")) {
+            answer += "\n\n";
+            write("\n\n");
+          }
+          spinner.start(`${msg}${++statusCount > 1 ? " (Ctrl+C to cancel)" : ""}`);
+        };
         for await (const chunk of streamChat(userInput, history, activeTurn.signal, onStatus)) {
+          spinner.stop();
+          if (!prefixWritten) {
+            write("Assistant: ");
+            prefixWritten = true;
+          }
           answer += chunk;
           write(chunk);
         }
-        write("\n");
+        spinner.stop();
+        if (prefixWritten) write("\n");
         // Re-render the finished answer as formatted markdown (TTY only —
         // piped output keeps the raw stream).
         if (process.stdout.isTTY && answer.trim() !== "") {
           rerenderTurn(rawParts.join(""), answer);
         }
       } catch (err) {
+        spinner.stop();
         history.length = turnStart; // roll back the failed turn so the next one starts clean
         if (isCancellation(err)) console.log("\n[Cancelled — back at the prompt]");
         else reportLlmError(err);
