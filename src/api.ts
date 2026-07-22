@@ -16,14 +16,15 @@ function abortableSleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 // F4: errors arrive as {error}, {detail: string}, or {detail: [FastAPI validation]}.
-function errorMessage(status: number, body: unknown): string {
+function errorMessage(status: number, body: unknown, rawText: string): string {
   if (typeof body === "object" && body !== null) {
     const b = body as Record<string, unknown>;
     if (typeof b.error === "string") return b.error;
     if (typeof b.detail === "string") return b.detail;
     if (Array.isArray(b.detail)) return b.detail.map((d) => d?.msg ?? JSON.stringify(d)).join("; ");
   }
-  return `API error (HTTP ${status})`;
+  const excerpt = rawText.trim().slice(0, 200);
+  return `API error (HTTP ${status})${excerpt ? `: ${excerpt}` : ""}`;
 }
 
 async function apiGet(url: string, signal?: AbortSignal, onStatus?: OnStatus): Promise<unknown> {
@@ -59,10 +60,10 @@ async function apiGet(url: string, signal?: AbortSignal, onStatus?: OnStatus): P
     } catch {}
 
     if (res.status >= 500) {
-      lastError = new Error(errorMessage(res.status, body));
+      lastError = new Error(errorMessage(res.status, body, text));
       continue; // transient server error — retry
     }
-    if (!res.ok) throw new Error(errorMessage(res.status, body)); // 4xx — deterministic, no retry
+    if (!res.ok) throw new Error(errorMessage(res.status, body, text)); // 4xx — deterministic, no retry
 
     // F1: rate limiting comes back as HTTP 200 with a throttle body.
     if (typeof body === "object" && body !== null && (body as any).status === "throttled") {
@@ -95,5 +96,9 @@ export async function getWeather(location: string, signal?: AbortSignal, onStatu
 export async function researchTopic(topic: string, signal?: AbortSignal, onStatus?: OnStatus): Promise<ResearchData> {
   if (!topic.trim()) throw new Error("topic is required"); // F6
   const url = `${process.env.ELYOS_API_URL_RESEARCH}?topic=${encodeURIComponent(topic.trim())}`;
-  return (await apiGet(url, signal, onStatus)) as unknown as ResearchData;
+  const body = (await apiGet(url, signal, onStatus)) as Record<string, unknown>;
+  if (typeof body.summary !== "string") {
+    throw new Error(`API returned an unexpected research response: ${JSON.stringify(body).slice(0, 200)}`);
+  }
+  return body as unknown as ResearchData;
 }
