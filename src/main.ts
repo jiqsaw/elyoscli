@@ -3,7 +3,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import { streamChat } from "./llm.ts";
 import ora from "ora";
 import { isCancellation, reportLlmError, requireEnv } from "./helpers.ts";
-import { rerenderTurn } from "./markdown.ts";
 
 async function main(): Promise<void> {
   requireEnv(["ANTHROPIC_API_KEY", "ELYOS_API_KEY", "ELYOS_API_URL_WEATHER", "ELYOS_API_URL_RESEARCH"]);
@@ -46,11 +45,6 @@ async function main(): Promise<void> {
       const brokenTty = process.stdout.isTTY && !process.stdout.columns;
       const spinner = ora({ text: "Thinking…", ...(brokenTty ? { isEnabled: false } : {}) }).start();
       try {
-        const rawParts: string[] = [];
-        const write = (s: string) => {
-          rawParts.push(s);
-          process.stdout.write(s);
-        };
         let answer = "";
         let prefixWritten = false;
         // The first status ("Calling X…") passes quickly; the cancel hint only
@@ -61,26 +55,21 @@ async function main(): Promise<void> {
           // Keep text segments separated when a tool call interrupts the answer.
           if (answer !== "" && !answer.endsWith("\n\n")) {
             answer += "\n\n";
-            write("\n\n");
+            process.stdout.write("\n\n");
           }
           spinner.start(`${msg}${++statusCount > 1 ? " (Ctrl+C to cancel)" : ""}`);
         };
         for await (const chunk of streamChat(userInput, history, activeTurn.signal, onStatus)) {
           spinner.stop();
           if (!prefixWritten) {
-            write("Assistant: ");
+            process.stdout.write("Assistant: ");
             prefixWritten = true;
           }
           answer += chunk;
-          write(chunk);
+          process.stdout.write(chunk);
         }
         spinner.stop();
-        if (prefixWritten) write("\n");
-        // Re-render the finished answer as formatted markdown (TTY only —
-        // piped output keeps the raw stream).
-        if (process.stdout.isTTY && answer.trim() !== "") {
-          rerenderTurn(rawParts.join(""), answer);
-        }
+        if (prefixWritten) process.stdout.write("\n");
       } catch (err) {
         spinner.stop();
         history.length = turnStart; // roll back the failed turn so the next one starts clean
